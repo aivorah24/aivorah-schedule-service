@@ -1,0 +1,19 @@
+{
+  "name": "aivorah-schedule-service",
+  "version": "1.0.0",
+  "description": "Aivorah Schedule — standalone microservice (calendar events, iCal export, cross-persona: student/teacher/parent)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.100.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
