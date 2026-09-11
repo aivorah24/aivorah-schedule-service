@@ -217,6 +217,33 @@ describe('GET /schedule/upcoming', () => {
   });
 });
 
+describe('GET /schedule/event/:id', () => {
+  test('a real existing event is returned mapped, for a notification deep-link to open', async () => {
+    supabase._chain.maybeSingle.mockResolvedValueOnce({
+      data: { id: 'ev1', title: 'Quiz due', event_date: '2026-09-20', student_id: 's1' },
+      error: null,
+    });
+
+    const res = await request(app).get('/schedule/event/ev1');
+
+    expect(res.status).toBe(200);
+    expect(mapRow).toHaveBeenCalledWith(expect.objectContaining({ id: 'ev1' }));
+    expect(res.body).toEqual(expect.objectContaining({ id: 'ev1', title: 'Quiz due' }));
+  });
+
+  test('a real non-existent id -> 404, not a crash', async () => {
+    supabase._chain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+    const res = await request(app).get('/schedule/event/does-not-exist');
+    expect(res.status).toBe(404);
+  });
+
+  test('a real Supabase failure -> 500', async () => {
+    supabase._chain.maybeSingle.mockRejectedValueOnce(new Error('db down'));
+    const res = await request(app).get('/schedule/event/ev1');
+    expect(res.status).toBe(500);
+  });
+});
+
 describe('POST /schedule', () => {
   test('missing required fields -> 400', async () => {
     const res = await request(app).post('/schedule').send({ title: 'x' });

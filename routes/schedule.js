@@ -151,6 +151,20 @@ router.get('/upcoming', async (req, res) => {
 
 });
 
+// ── GET /schedule/event/:id — single event, for notification deep-links ──
+// The day/week/month views only ever fetch events for a date range already
+// visible on screen, so a notification pointing at an event outside the
+// current week (the common case) had nothing to open it with. This is the
+// single-event lookup that was missing.
+router.get('/event/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('schedule_events').select('*').eq('id', req.params.id).maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'Event not found' });
+    res.json(mapRow(data));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /schedule ───────────────────────────────────────────
 router.post('/', async (req, res) => {
   const { title, date, startTime, endTime, type = 'study', note, studentId, createdBy, tag, assignmentId, creatorEmail } = req.body;
