@@ -2,9 +2,9 @@ const supabase = require('./supabase');
 
 // ── Row mapper: Supabase snake_case → camelCase ──────────────
 function mapRow(e) {
-  const startDate = (e.type === 'deadline' || e.type === 'challenge') && e.created_at
+  const startDate = e.start_date || ((e.type === 'deadline' || e.type === 'challenge') && e.created_at
     ? e.created_at.split('T')[0]
-    : e.event_date;
+    : e.event_date);
 
   let tag = e.tag || null;
   let tagCategory = 'assignment';
@@ -34,6 +34,7 @@ function mapRow(e) {
     tag:          tag,
     tagCategory:  tagCategory,
     assignmentId: e.assignment_id ?? null,
+    challengeId:  e.challenge_id ?? null,
     createdAt:    e.created_at,
     isCompleted:  !!e.isCompleted,
     startDate,

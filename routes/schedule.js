@@ -93,7 +93,7 @@ router.get('/', async (req, res) => {
     const allMap = new Map();
     (exactData || []).forEach(e => allMap.set(e.id, e));
     (activeDeadlines || []).forEach(e => {
-      const start = e.created_at ? e.created_at.split('T')[0] : e.event_date;
+      const start = e.start_date || (e.created_at ? e.created_at.split('T')[0] : e.event_date);
       if (start <= date && e.event_date >= date) {
         allMap.set(e.id, e);
       }
