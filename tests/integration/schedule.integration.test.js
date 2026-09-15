@@ -167,6 +167,39 @@ describe('GET /schedule/teacher', () => {
     const res = await request(app).get('/schedule/teacher').query({ date: '2026-04-15' });
     expect(res.status).toBe(500);
   });
+
+  // Regression (2026-09-15): a student's own personal schedule event
+  // (created_by === student_id, since the student UI sends its own id as
+  // createdBy - see useScheduleEvents.ts) was leaking onto the teacher's
+  // calendar via the "any event for one of my linked students" fallback,
+  // which was only meant to keep e.g. a PARENT-assigned deadline (created_by:
+  // 'parent') visible to the teacher. Bug report: "Student schedules an
+  // event -> Teacher should NOT see/receive the event." This test also
+  // pins the parent-assigned-deadline case so the fix can't regress it.
+  test('a student\'s own self-created event is excluded from the teacher\'s calendar, but a parent-assigned deadline for the same student still shows', async () => {
+    supabase.from.mockImplementation((table) => {
+      if (table === 'users') return { ...supabase._chain, maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'teacher-1' } }) };
+      if (table === 'teacher_student') return { ...supabase._chain, eq: jest.fn().mockResolvedValue({ data: [{ student_id: 's1' }] }) };
+      if (table === 'schedule_events') {
+        return {
+          ...supabase._chain,
+          eq: jest.fn().mockResolvedValue({
+            data: [
+              { id: '1', event_date: '2026-04-15', student_id: 's1', created_by: 's1', created_by_id: null }, // student's own personal event
+              { id: '2', event_date: '2026-04-15', student_id: 's1', created_by: 'parent', created_by_id: null }, // parent-assigned deadline
+            ],
+            error: null,
+          }),
+        };
+      }
+      return supabase._chain;
+    });
+
+    const res = await request(app).get('/schedule/teacher').query({ date: '2026-04-15', email: 'teacher1@a.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.map(e => e.id)).toEqual(['2']);
+  });
 });
 
 describe('GET /schedule/month', () => {

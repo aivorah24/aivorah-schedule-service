@@ -47,7 +47,14 @@ router.get('/teacher', async (req, res) => {
       rawEvents = rawEvents.filter(e => {
         if (e.created_by_id === teacherId || (e.created_by === 'teacher' && !e.created_by_id)) return true;
         if (['school_admin', 'school-admin', 'super_admin'].includes(String(e.created_by || '').toLowerCase())) return true;
-        if (e.student_id && e.student_id !== 'all' && linkedStudents.has(e.student_id)) return true;
+        // This fallback keeps e.g. a PARENT-assigned deadline (created_by:
+        // 'parent') visible to the teacher for their linked student, but must
+        // exclude the student's OWN personal events: the student schedule UI
+        // sets created_by to the student's own id (see useScheduleEvents.ts),
+        // so created_by === student_id uniquely identifies a self-created
+        // event - every other creation path sets created_by to a role string,
+        // never the student's id.
+        if (e.student_id && e.student_id !== 'all' && e.created_by !== e.student_id && linkedStudents.has(e.student_id)) return true;
         return false;
       });
     }

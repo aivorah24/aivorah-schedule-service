@@ -202,8 +202,34 @@ describe('filterCompleted', () => {
 });
 
 describe('notifyScheduleEvent', () => {
-  test('a student-created event never notifies anyone', async () => {
-    await notifyScheduleEvent({ title: 'x', date: '2026-04-15', studentId: 's1', createdBy: 'student' });
+  // Regression (2026-09-15): the student schedule UI sends createdBy as the
+  // student's OWN id (see useScheduleEvents.ts's addEvent: `createdBy:
+  // studentId`), never the literal string 'student'. Because notifyScheduleEvent
+  // only ever recognized the literal strings 'teacher'/'parent' as valid
+  // actors, a student scheduling their own event silently notified no one -
+  // the linked parent never saw or was told about it. Bug report: "Student
+  // schedules an event -> linked Parent must see the event and receive the
+  // notification."
+  test('a student-created event (createdBy === studentId, matching what the real UI sends) notifies that student\'s parents', async () => {
+    supabase.from.mockImplementation((table) => {
+      if (table === 'users') return { ...supabase._chain, maybeSingle: jest.fn().mockResolvedValue({ data: { id: 's1', name: 'Aanya' } }) };
+      if (table === 'parent_children') return { ...supabase._chain, eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ parent_email: 'parent@a.com' }] })) };
+      if (table === 'messages') return { ...supabase._chain, insert: jest.fn().mockResolvedValue({ data: null, error: null }) };
+      return supabase._chain;
+    });
+
+    await notifyScheduleEvent({ title: 'Study session', date: '2026-04-15', studentId: 's1', createdBy: 's1' });
+
+    const messagesCall = supabase.from.mock.calls.find(c => c[0] === 'messages');
+    expect(messagesCall).toBeTruthy();
+  });
+
+  // A genuinely unrecognized/garbage actor value (not the student's own id,
+  // and not 'teacher'/'parent') must still notify no one - this is NOT a
+  // blanket "always notify" change, only student-self-created events
+  // (createdBy === studentId) are newly recognized.
+  test('an unrecognized actor value that is not the student\'s own id still notifies no one', async () => {
+    await notifyScheduleEvent({ title: 'x', date: '2026-04-15', studentId: 's1', createdBy: 'some-other-id' });
     expect(supabase.from).not.toHaveBeenCalled();
   });
 

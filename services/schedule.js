@@ -126,7 +126,12 @@ async function notifyScheduleEvent({ title, date, startTime, type, studentId, cr
   const actorRole = String(createdBy || '').toLowerCase();
   const isTeacher = actorRole === 'teacher';
   const isParent  = actorRole === 'parent';
-  if (!(isTeacher || isParent) || !studentId) return;
+  // The student schedule UI sends createdBy as the student's OWN id (see
+  // useScheduleEvents.ts's addEvent: `createdBy: studentId`), never the
+  // literal string 'student' - so a student scheduling their own event must
+  // be recognized here too, or their linked parent never gets notified.
+  const isStudent = !!studentId && createdBy === studentId;
+  if (!(isTeacher || isParent || isStudent) || !studentId) return;
 
   try {
     const creatorLabel = isParent ? 'Your parent' : 'Your teacher';
