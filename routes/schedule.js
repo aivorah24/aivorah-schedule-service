@@ -41,20 +41,12 @@ router.get('/teacher', async (req, res) => {
     // was always false and silently fell through to "any teacher-created event",
     // leaking every teacher's schedule onto every other teacher's calendar.
     if (email && teacherId) {
-      const { data: tlinks } = await supabase.from('teacher_student').select('student_id').eq('teacher_id', teacherId);
-      const linkedStudents = new Set((tlinks || []).map(l => l.student_id).filter(Boolean));
-
+      // Teachers only see events they (or school admin) created — a parent's
+      // events for their child, deadline or personal, are never shown here,
+      // even for a student linked to this teacher.
       rawEvents = rawEvents.filter(e => {
         if (e.created_by_id === teacherId || (e.created_by === 'teacher' && !e.created_by_id)) return true;
         if (['school_admin', 'school-admin', 'super_admin'].includes(String(e.created_by || '').toLowerCase())) return true;
-        // This fallback keeps e.g. a PARENT-assigned deadline (created_by:
-        // 'parent') visible to the teacher for their linked student, but must
-        // exclude the student's OWN personal events: the student schedule UI
-        // sets created_by to the student's own id (see useScheduleEvents.ts),
-        // so created_by === student_id uniquely identifies a self-created
-        // event - every other creation path sets created_by to a role string,
-        // never the student's id.
-        if (e.student_id && e.student_id !== 'all' && e.created_by !== e.student_id && linkedStudents.has(e.student_id)) return true;
         return false;
       });
     }
