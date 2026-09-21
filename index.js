@@ -9,6 +9,7 @@ app.use(express.json({ limit: '20mb' }));
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'aivorah-schedule-service' }));
 
 app.use('/schedule', require('./routes/schedule'));
+app.use('/timetable', require('./routes/timetable'));
 
 const PORT = process.env.PORT || 3009;
 if (require.main === module) {
