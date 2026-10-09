@@ -9,9 +9,9 @@ jest.mock('../../services/schedule', () => ({
   getStudentProfile: jest.fn(),
   scopeAllEvents: jest.fn((rows) => Promise.resolve(rows)),
   filterCompleted: jest.fn((rows) => Promise.resolve(rows)),
-  notifyScheduleEvent: jest.fn().mockResolvedValue(undefined),
   uuidv4: jest.fn(() => 'ev_fixedid123'),
 }));
+jest.mock('../../services/notify', () => ({ notifyScheduleEvent: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../../services/icalExport', () => ({ buildICalendar: jest.fn(() => 'BEGIN:VCALENDAR\r\nEND:VCALENDAR') }));
 jest.mock('../../services/supabase', () => {
   const chain = {
@@ -34,7 +34,8 @@ jest.mock('../../services/supabase', () => {
 
 const request = require('supertest');
 const supabase = require('../../services/supabase');
-const { mapRow, getStudentProfile, scopeAllEvents, filterCompleted, notifyScheduleEvent, uuidv4 } = require('../../services/schedule');
+const { mapRow, getStudentProfile, scopeAllEvents, filterCompleted, uuidv4 } = require('../../services/schedule');
+const { notifyScheduleEvent } = require('../../services/notify');
 const { buildICalendar } = require('../../services/icalExport');
 const app = require('../../index');
 
@@ -297,9 +298,10 @@ describe('POST /schedule', () => {
   });
 
   test('notifyScheduleEvent is fired after a successful insert (fire-and-forget)', async () => {
-    supabase._chain.single.mockResolvedValueOnce({ data: { id: 'ev_1' }, error: null });
-    await request(app).post('/schedule').send({ title: 'Test', date: '2026-04-15', startTime: '10:00', studentId: 's1', createdBy: 'teacher' });
-    expect(notifyScheduleEvent).toHaveBeenCalledWith(expect.objectContaining({ title: 'Test', studentId: 's1', createdBy: 'teacher' }));
+    supabase._chain.maybeSingle.mockResolvedValueOnce({ data: { id: 'teacher-1' } });
+    supabase._chain.single.mockResolvedValueOnce({ data: { id: 'ev_1', title: 'Test', student_id: 's1' }, error: null });
+    await request(app).post('/schedule').send({ title: 'Test', date: '2026-04-15', startTime: '10:00', studentId: 's1', createdBy: 'teacher', creatorEmail: 't@x.com' });
+    expect(notifyScheduleEvent).toHaveBeenCalledWith({ event: { id: 'ev_1', title: 'Test', student_id: 's1' }, createdBy: 'teacher', creatorEmail: 't@x.com' });
   });
 
   test('a creatorEmail resolves to a real creatorId stored on the row', async () => {

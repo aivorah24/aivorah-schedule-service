@@ -14,7 +14,7 @@ jest.mock('../../services/supabase', () => {
 });
 
 const supabase = require('../../services/supabase');
-const { mapRow, getStudentProfile, scopeAllEvents, filterCompleted, notifyScheduleEvent, uuidv4 } = require('../../services/schedule');
+const { mapRow, getStudentProfile, scopeAllEvents, filterCompleted, uuidv4 } = require('../../services/schedule');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -198,115 +198,6 @@ describe('filterCompleted', () => {
     const rows = [{ id: '1', type: 'challenge', assignment_id: 'c1' }];
     const result = await filterCompleted(rows, 'u1');
     expect(result[0].isCompleted).toBe(true);
-  });
-});
-
-describe('notifyScheduleEvent', () => {
-  // Regression (2026-09-15): the student schedule UI sends createdBy as the
-  // student's OWN id (see useScheduleEvents.ts's addEvent: `createdBy:
-  // studentId`), never the literal string 'student'. Because notifyScheduleEvent
-  // only ever recognized the literal strings 'teacher'/'parent' as valid
-  // actors, a student scheduling their own event silently notified no one -
-  // the linked parent never saw or was told about it. Bug report: "Student
-  // schedules an event -> linked Parent must see the event and receive the
-  // notification."
-  test('a student-created event (createdBy === studentId, matching what the real UI sends) notifies that student\'s parents', async () => {
-    supabase.from.mockImplementation((table) => {
-      if (table === 'users') return { ...supabase._chain, maybeSingle: jest.fn().mockResolvedValue({ data: { id: 's1', name: 'Aanya' } }) };
-      if (table === 'parent_children') return { ...supabase._chain, eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ parent_email: 'parent@a.com' }] })) };
-      if (table === 'messages') return { ...supabase._chain, insert: jest.fn().mockResolvedValue({ data: null, error: null }) };
-      return supabase._chain;
-    });
-
-    await notifyScheduleEvent({ title: 'Study session', date: '2026-04-15', studentId: 's1', createdBy: 's1' });
-
-    const messagesCall = supabase.from.mock.calls.find(c => c[0] === 'messages');
-    expect(messagesCall).toBeTruthy();
-  });
-
-  // A genuinely unrecognized/garbage actor value (not the student's own id,
-  // and not 'teacher'/'parent') must still notify no one - this is NOT a
-  // blanket "always notify" change, only student-self-created events
-  // (createdBy === studentId) are newly recognized.
-  test('an unrecognized actor value that is not the student\'s own id still notifies no one', async () => {
-    await notifyScheduleEvent({ title: 'x', date: '2026-04-15', studentId: 's1', createdBy: 'some-other-id' });
-    expect(supabase.from).not.toHaveBeenCalled();
-  });
-
-  test('no studentId -> never notifies, even for a teacher/parent actor', async () => {
-    await notifyScheduleEvent({ title: 'x', date: '2026-04-15', studentId: null, createdBy: 'teacher' });
-    expect(supabase.from).not.toHaveBeenCalled();
-  });
-
-  test('a teacher scheduling for a specific student notifies that student\'s parents with a real card message', async () => {
-    supabase.from.mockImplementation((table) => {
-      if (table === 'users') return { ...supabase._chain, maybeSingle: jest.fn().mockResolvedValue({ data: { id: 's1', name: 'Aanya' } }) };
-      if (table === 'parent_children') return { ...supabase._chain, eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ parent_email: 'parent@a.com' }] })) };
-      if (table === 'messages') return { ...supabase._chain, insert: jest.fn().mockResolvedValue({ data: null, error: null }) };
-      return supabase._chain;
-    });
-
-    await notifyScheduleEvent({ title: 'Maths Test', date: '2026-04-15', startTime: '10:00', studentId: 's1', createdBy: 'teacher' });
-
-    const messagesCall = supabase.from.mock.calls.find(c => c[0] === 'messages');
-    expect(messagesCall).toBeTruthy();
-  });
-
-  test('errors during notification are swallowed (best-effort, never throws)', async () => {
-    supabase.from.mockImplementation(() => { throw new Error('db down'); });
-    await expect(notifyScheduleEvent({ title: 'x', date: '2026-04-15', studentId: 's1', createdBy: 'teacher' })).resolves.toBeUndefined();
-  });
-
-  test('a teacher broadcasting to "all" notifies the parents of every one of THEIR linked students', async () => {
-    supabase.from.mockImplementation((table) => {
-      if (table === 'users') {
-        return {
-          ...supabase._chain,
-          maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'teacher-1' } }),
-          in: jest.fn().mockReturnValue(Promise.resolve({ data: [{ id: 's1', name: 'Aanya' }, { id: 's2', name: 'Rohan' }] })),
-        };
-      }
-      if (table === 'teacher_student') return { ...supabase._chain, eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ student_id: 's1' }, { student_id: 's2' }] })) };
-      if (table === 'parent_children') return { ...supabase._chain, eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ parent_email: 'parent@a.com' }] })) };
-      if (table === 'messages') return { ...supabase._chain, insert: jest.fn().mockResolvedValue({ data: null, error: null }) };
-      return supabase._chain;
-    });
-
-    await notifyScheduleEvent({ title: 'Sports Day', date: '2026-04-20', studentId: 'all', createdBy: 'teacher', creatorEmail: 'T@A.com' });
-
-    const messagesCalls = supabase.from.mock.calls.filter(c => c[0] === 'messages');
-    expect(messagesCalls).toHaveLength(2); // one per linked student's parent
-  });
-
-  test('a parent-created "all" event never triggers the teacher broadcast branch (parents have no linked students)', async () => {
-    await notifyScheduleEvent({ title: 'x', date: '2026-04-15', studentId: 'all', createdBy: 'parent', creatorEmail: 'p@a.com' });
-    expect(supabase.from).not.toHaveBeenCalled();
-  });
-
-  test('a teacher broadcast with no creatorEmail never resolves a teacher id, so nothing is notified', async () => {
-    await notifyScheduleEvent({ title: 'x', date: '2026-04-15', studentId: 'all', createdBy: 'teacher' });
-    expect(supabase.from).not.toHaveBeenCalled();
-  });
-
-  test('an unresolvable teacher email (no matching user row) notifies no one, no crash', async () => {
-    supabase.from.mockImplementation((table) => {
-      if (table === 'users') return { ...supabase._chain, maybeSingle: jest.fn().mockResolvedValue({ data: null }) };
-      return supabase._chain;
-    });
-    await expect(notifyScheduleEvent({ title: 'x', date: '2026-04-15', studentId: 'all', createdBy: 'teacher', creatorEmail: 't@a.com' })).resolves.toBeUndefined();
-    const messagesCalls = supabase.from.mock.calls.filter(c => c[0] === 'messages');
-    expect(messagesCalls).toHaveLength(0);
-  });
-
-  test('a teacher with no linked students at all notifies no one', async () => {
-    supabase.from.mockImplementation((table) => {
-      if (table === 'users') return { ...supabase._chain, maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'teacher-1' } }) };
-      if (table === 'teacher_student') return { ...supabase._chain, eq: jest.fn().mockReturnValue(Promise.resolve({ data: [] })) };
-      return supabase._chain;
-    });
-    await notifyScheduleEvent({ title: 'x', date: '2026-04-15', studentId: 'all', createdBy: 'teacher', creatorEmail: 't@a.com' });
-    const messagesCalls = supabase.from.mock.calls.filter(c => c[0] === 'messages');
-    expect(messagesCalls).toHaveLength(0);
   });
 });
 

@@ -118,62 +118,6 @@ async function filterCompleted(rows, userId) {
   return rows;
 }
 
-// Fire-and-forget notifications for events scheduled by teacher or parent.
-// For a specific student: the student sees it via notifications-summary
-// (schedule_events query); parents get a message card in their inbox.
-// For 'all': only the teacher's own linked students (scoped by creatorEmail)
-// are notified.
-async function notifyScheduleEvent({ title, date, startTime, type, studentId, createdBy, creatorEmail }) {
-  const actorRole = String(createdBy || '').toLowerCase();
-  const isTeacher = actorRole === 'teacher';
-  const isParent  = actorRole === 'parent';
-  // The student schedule UI sends createdBy as the student's OWN id (see
-  // useScheduleEvents.ts's addEvent: `createdBy: studentId`), never the
-  // literal string 'student' - so a student scheduling their own event must
-  // be recognized here too, or their linked parent never gets notified.
-  const isStudent = !!studentId && createdBy === studentId;
-  if (!(isTeacher || isParent || isStudent) || !studentId) return;
-
-  try {
-    const creatorLabel = isParent ? 'Your parent' : 'Your teacher';
-    const msgContent = `${creatorLabel} scheduled "${title}" on ${date}${startTime ? ' at ' + startTime : ''}.`;
-
-    // Students get bell-only notifications (via notifications-summary schedule_events query).
-    // Parents get a rich card message in their inbox.
-    const notifyParents = async (childId, childName) => {
-      const { data: parents } = await supabase.from('parent_children').select('parent_email').eq('child_id', childId);
-      // Rich card format: parseable by MessagesScreen renderScheduleCard
-      // Format: "SCHEDULE_CARD|childName|title|date|startTime|type"
-      const cardContent = `SCHEDULE_CARD|${childName || 'Your child'}|${title}|${date}|${startTime || ''}|${type}`;
-      for (const { parent_email } of parents || []) {
-        await supabase.from('messages').insert({
-          sender_email:    'system@aivorah.com',
-          sender_name:     'Aivorah',
-          sender_role:     'teacher',
-          recipient_email: parent_email,
-          recipient_name:  parent_email,
-          content:         cardContent,
-        });
-      }
-    };
-
-    if (studentId !== 'all') {
-      const { data: stu } = await supabase.from('users').select('id,name').eq('id', studentId).maybeSingle();
-      await notifyParents(studentId, stu?.name || 'Your child');
-    } else if (isTeacher && creatorEmail) {
-      const { data: tRow } = await supabase.from('users').select('id').eq('email', creatorEmail.toLowerCase().trim()).maybeSingle();
-      if (tRow?.id) {
-        const { data: links } = await supabase.from('teacher_student').select('student_id').eq('teacher_id', tRow.id);
-        const sIds = (links || []).map(l => l.student_id).filter(Boolean);
-        if (sIds.length > 0) {
-          const { data: studs } = await supabase.from('users').select('id,name').in('id', sIds);
-          for (const s of studs || []) await notifyParents(s.id, s.name);
-        }
-      }
-    }
-  } catch (_) { /* notifications are best-effort */ }
-}
-
 function uuidv4() {
   return 'ev_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
@@ -183,6 +127,5 @@ module.exports = {
   getStudentProfile,
   scopeAllEvents,
   filterCompleted,
-  notifyScheduleEvent,
   uuidv4,
 };
