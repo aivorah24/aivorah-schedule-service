@@ -6,9 +6,9 @@ const {
   getStudentProfile,
   scopeAllEvents,
   filterCompleted,
-  notifyScheduleEvent,
   uuidv4,
 } = require('../services/schedule');
+const { notifyScheduleEvent } = require('../services/notify');
 const { buildICalendar } = require('../services/icalExport');
 
 // ── GET /schedule/teacher?date=YYYY-MM-DD&email=... ──────────────────────────
@@ -201,7 +201,7 @@ router.post('/', async (req, res) => {
     if (error) throw error;
     res.json(mapRow(data));
 
-    notifyScheduleEvent({ title, date, startTime, type, studentId, createdBy, creatorEmail }).catch(() => {});
+    notifyScheduleEvent({ event: data, createdBy, creatorEmail });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
