@@ -105,7 +105,14 @@ describe('notifyScheduleEvent', () => {
     expect(rpcCalls[0].student_ids).toEqual(['s1']);
     expect(rpcCalls[0].actor_email).toBe('mom@x.com');
     expect(cardRecipients()).toEqual(['dad@x.com']);
-    expect(sendPush.mock.calls[0][0].sort()).toEqual(['dad@x.com', 's1@x.com']);
+    const pushes = Object.fromEntries(sendPush.mock.calls.map(([emails, o]) => [o.title, emails]));
+    expect(pushes).toEqual({ 'New event: Math class': ['s1@x.com'], 'New event for Asha: Math class': ['dad@x.com'] });
+  });
+
+  test('parent link check ignores email case (stored Mom@X.com)', async () => {
+    db.parent_children[0].parent_email = 'Mom@X.com';
+    await notifyScheduleEvent({ event: event({ student_id: 's1' }), createdBy: 'parent', creatorEmail: 'mom@x.com' });
+    expect(rpcCalls[0].student_ids).toEqual(['s1']);
   });
 
   test("parent event for a child that isn't theirs notifies no one", async () => {

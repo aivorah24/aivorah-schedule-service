@@ -37,8 +37,9 @@ async function resolveStudentIds({ studentId, actor }) {
   }
   if (studentId === 'all') return [];
   if (actor.role === 'parent') {
-    const { data } = await supabase.from('parent_children').select('child_id').eq('parent_email', actor.email).eq('child_id', studentId);
-    return data && data.length ? [studentId] : [];
+    // parent_email has no case rule (notify_event compares lower()), so match in JS.
+    const { data } = await supabase.from('parent_children').select('parent_email').eq('child_id', studentId);
+    return (data || []).some(l => norm(l.parent_email) === actor.email) ? [studentId] : [];
   }
   if (actor.role === 'student') return actor.id === studentId ? [studentId] : [];
   return [];
@@ -123,18 +124,27 @@ async function sendParentCards(row, studentIds, actor) {
   if (cards.length) await supabase.from('messages').insert(cards);
 }
 
+// One push per audience: students get "New event", each parent gets it per child by name.
 async function pushInserted(row, inserted) {
-  const ids = [...new Set(inserted.map(r => r.recipient_id))];
+  const ids = [...new Set(inserted.flatMap(r => [r.recipient_id, r.child_id]).filter(Boolean))];
   if (!ids.length) return;
-  const { data: users } = await supabase.from('users').select('email').in('id', ids);
-  const emails = (users || []).map(u => u.email).filter(Boolean);
-  if (!emails.length) return;
-  await sendPush(emails, {
-    title: `New event: ${row.title}`,
-    body: formatWhen(row.event_date, row.start_time) || 'Tap to view',
-    data: { type: 'event', eventId: String(row.id) },
-    prefKey: 'assignmentAlerts',
-  });
+  const { data: users } = await supabase.from('users').select('id, email, name').in('id', ids);
+  const byId = Object.fromEntries((users || []).map(u => [u.id, u]));
+  const groups = new Map();
+  for (const r of inserted) {
+    const email = byId[r.recipient_id]?.email;
+    if (!email) continue;
+    const title = r.child_id
+      ? `New event for ${byId[r.child_id]?.name || 'your child'}: ${row.title}`
+      : `New event: ${row.title}`;
+    if (!groups.has(title)) groups.set(title, new Set());
+    groups.get(title).add(email);
+  }
+  const body = formatWhen(row.event_date, row.start_time) || 'Tap to view';
+  for (const [title, emails] of groups) {
+    // Events sit under the Assignment Alerts toggle, same as the in-app bell.
+    await sendPush([...emails], { title, body, data: { type: 'event', eventId: String(row.id) }, prefKey: 'assignmentAlerts' });
+  }
 }
 
 async function notifyScheduleEvent({ event, createdBy, creatorEmail }) {
